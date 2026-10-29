@@ -5,4 +5,6 @@ if OS.mac?
   require "extend/os/mac/diagnostic"
 elsif OS.linux?
   require "extend/os/linux/diagnostic"
+elsif OS.windows?
+  require "extend/os/windows/diagnostic"
 end
