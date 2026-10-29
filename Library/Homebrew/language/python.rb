@@ -42,6 +42,8 @@ module Language
       return unless version
 
       Version.new(version)
+    rescue Errno::ENOENT
+      nil
     end
 
     sig { params(python: T.any(String, Pathname)).returns(Pathname) }
