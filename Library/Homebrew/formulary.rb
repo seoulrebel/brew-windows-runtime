@@ -676,6 +676,16 @@ module Formulary
       end, T.nilable(Regexp))
 
       uri = ref.to_s
+
+      # On Windows, an absolute path like "C:/Users/foo/bar.rb" matches the
+      # RFC 2396 URI regex with "C" as a single-letter scheme, which would
+      # route a local file through FromURILoader and then fail with
+      # UnsupportedInstallationMethod. Skip drive paths so they fall through
+      # to FromPathLoader, which is the correct loader for local files.
+      if RbConfig::CONFIG["host_os"].match?(/mswin|mingw|cygwin/) && uri.match?(%r{\A[A-Za-z]:[\/]})
+        return
+      end
+
       return unless uri.match?(@uri_regex)
 
       uri = URI(uri)
