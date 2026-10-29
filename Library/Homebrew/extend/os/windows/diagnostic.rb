@@ -8,6 +8,10 @@ module OS
   module Windows
     module Diagnostic
       # Windows-specific diagnostic checks for Homebrew.
+      #
+      # Upstream Homebrew 7.x returns `Diagnostic::Finding` objects from each
+      # check (previously plain `String`s). Every check here follows that
+      # contract: return `Finding.new(...)` for a problem, `nil` when clean.
       module Checks
         extend T::Helpers
 
@@ -25,7 +29,28 @@ module OS
           ]
         end
 
-        sig { returns(T.nilable(String)) }
+        # Upstream's check_tools probes both tools by running `/bin/bash` and
+        # sourcing the POSIX `utils.sh`/`<tool>.sh` helpers. Neither path
+        # exists on Windows, so the probe always failed and produced a false
+        # "could not find a working git/curl" warning. Validate the vendored
+        # executables that the launcher configured instead.
+        sig { returns(T.nilable(Homebrew::Diagnostic::Finding)) }
+        def check_tools
+          missing = []
+          { "git" => ENV["HOMEBREW_GIT_PATH"], "curl" => ENV["HOMEBREW_CURL_PATH"] }.each do |tool, path|
+            missing << tool if path.nil? || path.empty? || !File.file?(path)
+          end
+          return if missing.empty?
+
+          Homebrew::Diagnostic::Finding.new(<<~EOS)
+            Homebrew could not find a working #{missing.join(" or ")}.
+            The launcher-configured executable was missing:
+            #{missing.map { |tool| "  #{tool}: #{ENV["HOMEBREW_#{tool.upcase}_PATH"]}" }.join("\n")}
+            Re-run install.ps1 to bootstrap the runtime.
+          EOS
+        end
+
+        sig { returns(T.nilable(Homebrew::Diagnostic::Finding)) }
         def check_long_path_support
           output, status = Open3.capture2(
             "reg.exe", "query",
@@ -33,15 +58,15 @@ module OS
             "/v", "LongPathsEnabled"
           )
           unless status.success?
-            return <<~EOS
+            return Homebrew::Diagnostic::Finding.new(<<~EOS)
               Could not query the Windows long path policy via reg.exe.
               Homebrew needs LongPathsEnabled=1 to extract archives whose
               internal paths exceed 260 characters.
             EOS
           end
-          return nil if output.match?(/0x1\b/)
+          return if output.match?(/0x1\b/)
 
-          <<~EOS
+          Homebrew::Diagnostic::Finding.new(<<~EOS)
             Windows long path support is not enabled. Paths longer than 260
             characters may fail to extract or link. To enable, run as
             Administrator:
@@ -53,17 +78,17 @@ module OS
           nil
         end
 
-        sig { returns(T.nilable(String)) }
+        sig { returns(T.nilable(Homebrew::Diagnostic::Finding)) }
         def check_execution_policy
           output, status = Open3.capture2(
             "powershell.exe", "-NoProfile", "-Command", "Get-ExecutionPolicy -Scope CurrentUser"
           )
-          return nil unless status.success?
+          return unless status.success?
 
           policy = output.strip
-          return nil if %w[RemoteSigned AllSigned Unrestricted Bypass Undefined].include?(policy)
+          return if %w[RemoteSigned AllSigned Unrestricted Bypass Undefined].include?(policy)
 
-          <<~EOS
+          Homebrew::Diagnostic::Finding.new(<<~EOS)
             PowerShell execution policy is "#{policy}" for the current user.
             Homebrew Windows shims are .ps1 scripts; a Restricted policy will
             prevent them from running. Acceptable values are RemoteSigned,
@@ -75,10 +100,10 @@ module OS
           nil
         end
 
-        sig { returns(T.nilable(String)) }
+        sig { returns(T.nilable(Homebrew::Diagnostic::Finding)) }
         def check_path_brew_windows
           prefix = ENV.fetch("HOMEBREW_WINDOWS_PREFIX", nil) || ENV.fetch("HOMEBREW_PREFIX", nil)
-          return nil if prefix.nil? || prefix.empty?
+          return if prefix.nil? || prefix.empty?
 
           expected = File.expand_path(File.join(prefix, "bin"))
 
@@ -100,18 +125,16 @@ module OS
 
           if user_path
             user_dirs = user_path.split(";").map { |d| d.strip.gsub(/\\$/, "") }
-            if user_dirs.any? { |d| !d.empty? && File.expand_path(d).casecmp(expected).zero? }
-              return nil
-            end
+            return if user_dirs.any? { |d| !d.empty? && File.expand_path(d).casecmp(expected).zero? }
           end
 
           # Fallback: also check current process PATH (catches the case
           # where install.ps1 set User PATH but the registry read failed,
           # or the user is running brew from a custom env).
           path_dirs = ENV.fetch("PATH", "").split(File::PATH_SEPARATOR)
-          return nil if path_dirs.any? { |d| !d.empty? && File.expand_path(d).casecmp(expected).zero? }
+          return if path_dirs.any? { |d| !d.empty? && File.expand_path(d).casecmp(expected).zero? }
 
-          <<~EOS
+          Homebrew::Diagnostic::Finding.new(<<~EOS)
             <prefix>\\bin (#{expected}) is not on your User PATH.
             The Brew Windows launcher installs brew.cmd here and the
             install script (install.ps1) adds the directory to HKCU
@@ -121,19 +144,19 @@ module OS
           EOS
         end
 
-        sig { returns(T.nilable(String)) }
+        sig { returns(T.nilable(Homebrew::Diagnostic::Finding)) }
         def check_path_shadowed_shims
           prefix = ENV.fetch("HOMEBREW_WINDOWS_PREFIX", nil) || ENV.fetch("HOMEBREW_PREFIX", nil)
-          return nil if prefix.nil? || prefix.empty?
+          return if prefix.nil? || prefix.empty?
 
           shim_dir = File.expand_path(File.join(prefix, "bin"))
-          return nil unless File.directory?(shim_dir)
+          return unless File.directory?(shim_dir)
 
           shim_names = Dir.children(shim_dir)
                           .select { |f| f.end_with?(".cmd") || f.end_with?(".ps1") }
                           .map { |f| File.basename(f, File.extname(f)) }
                           .uniq
-          return nil if shim_names.empty?
+          return if shim_names.empty?
 
           path_dirs = ENV.fetch("PATH", "").split(File::PATH_SEPARATOR)
           conflicts = []
@@ -149,12 +172,15 @@ module OS
               break
             end
           end
-          return nil if conflicts.empty?
+          return if conflicts.empty?
 
-          "The following Brew Windows shims are shadowed on PATH:\n#{conflicts.join("\n")}\n"
+          Homebrew::Diagnostic::Finding.new(<<~EOS)
+            The following Brew Windows shims are shadowed on PATH:
+            #{conflicts.join("\n")}
+          EOS
         end
 
-        sig { returns(T.nilable(String)) }
+        sig { returns(T.nilable(Homebrew::Diagnostic::Finding)) }
         def check_runtime_integrity
           # HOMEBREW_PREFIX is rewritten by brew.sh to point at
           # HOMEBREW_REPOSITORY when they are siblings on the same tree.
@@ -167,13 +193,21 @@ module OS
             repo = ENV.fetch("HOMEBREW_REPOSITORY", nil)
             prefix = repo.nil? ? nil : File.dirname(File.dirname(repo))
           end
-          return nil if prefix.nil? || prefix.empty?
+          return if prefix.nil? || prefix.empty?
 
           pins_path = File.join(prefix, "runtime", "pins.json")
           manifest_path = File.join(prefix, "runtime-manifest.json")
 
-          return "Runtime pins file is missing: #{pins_path}. Re-run install.ps1 to bootstrap the runtime." unless File.exist?(pins_path)
-          return "Runtime manifest is missing: #{manifest_path}. The launcher payload is incomplete." unless File.exist?(manifest_path)
+          unless File.exist?(pins_path)
+            return Homebrew::Diagnostic::Finding.new(
+              "Runtime pins file is missing: #{pins_path}. Re-run install.ps1 to bootstrap the runtime.",
+            )
+          end
+          unless File.exist?(manifest_path)
+            return Homebrew::Diagnostic::Finding.new(
+              "Runtime manifest is missing: #{manifest_path}. The launcher payload is incomplete.",
+            )
+          end
 
           pins = JSON.parse(File.read(pins_path))
           manifest = JSON.parse(File.read(manifest_path))
@@ -191,19 +225,23 @@ module OS
               mismatches << "  #{name}.#{key}: pinned=#{actual} manifest=#{expected}"
             end
           end
-          return nil if mismatches.empty?
+          return if mismatches.empty?
 
-          "Runtime is out of sync with runtime-manifest.json:\n#{mismatches.join("\n")}\nRe-run install.ps1 to reconcile.\n"
+          Homebrew::Diagnostic::Finding.new(<<~EOS)
+            Runtime is out of sync with runtime-manifest.json:
+            #{mismatches.join("\n")}
+            Re-run install.ps1 to reconcile.
+          EOS
         rescue StandardError => e
-          "Could not verify runtime integrity: #{e.message}"
+          Homebrew::Diagnostic::Finding.new("Could not verify runtime integrity: #{e.message}")
         end
 
-        sig { returns(T.nilable(String)) }
+        sig { returns(T.nilable(Homebrew::Diagnostic::Finding)) }
         def check_curl_present
           curl_path = "C:/Windows/System32/curl.exe"
-          return nil if File.exist?(curl_path)
+          return if File.exist?(curl_path)
 
-          <<~EOS
+          Homebrew::Diagnostic::Finding.new(<<~EOS)
             curl.exe was not found at #{curl_path}. Windows 10 1803 (April 2018)
             and later ship curl in the base image. Earlier Windows versions are
             not supported.
