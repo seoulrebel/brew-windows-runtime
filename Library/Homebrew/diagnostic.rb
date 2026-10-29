@@ -2,6 +2,7 @@
 # frozen_string_literal: true
 
 require "utils/text"
+require "timeout"
 
 require "keg"
 require "formula"
