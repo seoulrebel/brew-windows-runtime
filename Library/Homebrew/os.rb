@@ -35,6 +35,16 @@ module OS
     /-microsoft/i.match?(kernel_version.to_s)
   end
 
+  # Check whether the operating system is Windows.
+  #
+  # @api public
+  sig { returns(T::Boolean) }
+  def self.windows?
+    return false if ENV["HOMEBREW_TEST_GENERIC_OS"]
+
+    RbConfig::CONFIG["host_os"].match?(/mswin|mingw|cygwin/)
+  end
+
   # Get the kernel version.
   #
   # @api public

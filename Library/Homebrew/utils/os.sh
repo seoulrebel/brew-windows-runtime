@@ -28,6 +28,10 @@ case "${OSTYPE}" in
     HOMEBREW_SYSTEM="Linux"
     HOMEBREW_LINUX="1"
     ;;
+  windows* | msys* | cygwin* | mingw*)
+    HOMEBREW_SYSTEM="Windows"
+    HOMEBREW_WINDOWS="1"
+    ;;
   *)
     HOMEBREW_SYSTEM="$(uname -s)"
     ;;
