@@ -3,12 +3,12 @@
 
 require "etc"
 require "io/console"
-require "pty"
+require "pty" unless RbConfig::CONFIG["host_os"].match?(/mswin|mingw|cygwin/)
 require "tempfile"
 require "system_command"
 require "exceptions"
 require "mktemp"
-require "utils/fork"
+require "utils/fork" unless RbConfig::CONFIG["host_os"].match?(/mswin|mingw|cygwin/)
 require "utils/output"
 
 # Helper class for running a sub-process inside of a sandboxed environment.
