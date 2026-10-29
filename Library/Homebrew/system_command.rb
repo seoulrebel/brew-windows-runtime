@@ -731,3 +731,5 @@ class SystemCommand
     private :warn_plist_garbage
   end
 end
+
+require_relative "extend/os/system_command"
