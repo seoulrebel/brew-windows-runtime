@@ -5,4 +5,6 @@ if OS.mac?
   require "extend/os/mac/keg"
 elsif OS.linux?
   require "extend/os/linux/keg"
+elsif OS.windows?
+  require "extend/os/windows/keg"
 end
