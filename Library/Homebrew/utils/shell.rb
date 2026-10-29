@@ -23,6 +23,16 @@ module Utils
           next
         end
         return Pathname.new(executable) if File.file?(executable) && File.executable?(executable)
+        # On Windows, File.executable? only matches files with .exe, .cmd,
+        # .bat or .com extension - PATHEXT-aware lookup is not done by Ruby.
+        # When the caller passed a bare name like "unzip", probe the
+        # conventional Windows executable extensions in order.
+        if RbConfig::CONFIG["host_os"].match?(/mswin|mingw|cygwin/) && File.extname(cmd).empty?
+          %w[.exe .cmd .bat .com].each do |ext|
+            candidate = executable + ext
+            return Pathname.new(candidate) if File.file?(candidate) && File.executable?(candidate)
+          end
+        end
       end
       nil
     end
