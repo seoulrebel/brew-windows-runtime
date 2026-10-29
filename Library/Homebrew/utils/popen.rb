@@ -116,6 +116,71 @@ module Utils
       end
     end
 
+    # Windows: Ruby has no fork(2), so the fork-myself "-" idiom below raises
+    # NotImplementedError. Use the array form of IO.popen, which internally
+    # calls Process.spawn (no fork) and gives the same parent-side pipe
+    # semantics that the fork-myself path produces.
+    if RbConfig::CONFIG["host_os"].match?(/mswin|mingw|cygwin/)
+      options[:err] ||= File::NULL unless ENV["HOMEBREW_STDERR"]
+      cmd = if args[0].is_a? Hash
+        args[1]
+      else
+        args[0]
+      end
+      # Resolve bare "git"/"curl"/"ruby" to the vendored executable:
+      # Process.spawn on Windows doesn't search PATH the same way the POSIX
+      # exec path does for child processes.
+      exe_idx = args[0].is_a?(Hash) ? 1 : 0
+      case args[exe_idx].to_s
+      when "git"
+        gp = ENV["HOMEBREW_GIT_PATH"].to_s
+        args[exe_idx] = gp if !gp.empty? && File.file?(gp)
+      when "curl"
+        cp = ENV["HOMEBREW_CURL_PATH"].to_s
+        args[exe_idx] = cp if !cp.empty? && File.file?(cp)
+      when "ruby"
+        rp = ENV["HOMEBREW_RUBY_PATH"].to_s
+        args[exe_idx] = rp if !rp.empty? && File.file?(rp)
+      end
+      # Detect bash shebang shims (e.g. Library/Homebrew/shims/shared/git) and
+      # route through the vendored bash.exe: Windows CreateProcess cannot exec
+      # a script with a shebang directly.
+      exe = args[exe_idx]
+      exe_path = exe.to_s if exe.is_a?(String) || exe.is_a?(Pathname)
+      if exe_path && File.file?(exe_path)
+        first_line = File.open(exe_path, "rb") { |f| f.read(256) }.to_s
+        if first_line.start_with?("#!") && first_line.include?("bash")
+          git_path = ENV["HOMEBREW_GIT_PATH"].to_s
+          bash = ENV["HOMEBREW_BASH"]
+          if (bash.nil? || bash.empty?) && !git_path.empty?
+            mingit_root = File.dirname(File.dirname(git_path))
+            bash = File.join(mingit_root, "usr", "bin", "bash.exe")
+          end
+          if bash && File.file?(bash)
+            args = args.dup
+            args[exe_idx] = bash
+            args.insert(exe_idx + 1, exe_path)
+          end
+        end
+      end
+      begin
+        IO.popen(args, mode, options) do |pipe|
+          return pipe.read unless block_given?
+
+          return yield pipe
+        end
+      rescue Errno::ENOENT
+        $stderr.puts "brew: command not found: #{cmd}" if options[:err] != :close
+        ""
+      rescue SystemCallError => e
+        if options[:err] != :close
+          require "utils"
+          $stderr.puts "brew: exec failed (#{Utils.demodulize(e.class.name)}): #{cmd}"
+        end
+        ""
+      end
+    end
+
     IO.popen("-", mode) do |pipe|
       if pipe
         return pipe.read unless block_given?
