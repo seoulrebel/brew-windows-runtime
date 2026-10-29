@@ -37,8 +37,13 @@ module Utils
     end
   end
 
-  sig { returns(IO) }
+  sig { returns(T.nilable(IO)) }
   def self.forked_child_error_pipe
+    # Windows has no UNIX socket channel that matches the POSIX path, and the
+    # safe_fork stub runs the build via spawn-and-wait instead of forking, so
+    # error reporting returns through the child's exit status and stderr.
+    return if RbConfig::CONFIG["host_os"].match?(/mswin|mingw|cygwin/)
+
     UNIXSocketExt.open(ENV.fetch("HOMEBREW_ERROR_PIPE")) do |socket|
       receive_forked_child_pipe(socket)
     end
@@ -96,6 +101,14 @@ module Utils
       when Pathname then object.to_s
       else object
       end
+    end
+
+    if error_pipe.nil?
+      # Windows: no IPC channel exists (see forked_child_error_pipe), so
+      # surface the failure on stderr for the parent process to relay.
+      $stderr.puts "==> Build error: #{error.class}: #{error.message}"
+      (error.backtrace || []).first(20).each { |line| $stderr.puts "  #{line}" }
+      return
     end
 
     error_pipe&.puts coder.dump(error)
