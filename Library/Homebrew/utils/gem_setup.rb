@@ -320,3 +320,5 @@ module Utils
     end
   end
 end
+
+require_relative "../extend/os/gems"
