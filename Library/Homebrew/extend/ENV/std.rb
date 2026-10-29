@@ -58,6 +58,12 @@ module Stdenv
     begin
       send(compiler)
     rescue CompilerSelectionError
+      # On Windows, binary-only formulae (pre-built archives that need no
+      # compile step) reach this path because clang/gcc aren't on a stock
+      # PATH. Swallow the error and return early so the formula's install
+      # method runs without a compiler environment.
+      return if RbConfig::CONFIG["host_os"].match?(/mswin|mingw|cygwin/)
+
       # We don't care if our compiler fails to build the formula during `brew test`.
       raise unless testing_formula
 

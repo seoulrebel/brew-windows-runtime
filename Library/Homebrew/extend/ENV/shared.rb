@@ -245,7 +245,7 @@ module SharedEnvExtension
       end
 
       compiler
-    elsif (formula = state.formula)
+    elsif (formula = state.formula) && !RbConfig::CONFIG["host_os"].match?(/mswin|mingw|cygwin/)
       CompilerSelector.select_for(formula, testing_formula: state.testing_formula)
     else
       DevelopmentTools.default_compiler
