@@ -27,6 +27,29 @@ class File
     ).returns(T.type_parameter(:Out))
   }
   def self.atomic_write(file_name, temp_dir = dirname(file_name), &_block)
+    # Windows: skip the tempfile-and-rename dance. Tempfile-then-File.rename
+    # across symlinked dirs (e.g. <prefix>/opt/<name>, a symlink into Cellar)
+    # can fail with ENOENT even though both paths look valid. Atomicity
+    # matters less on a single-user workstation; trade it for reliability.
+    if RbConfig::CONFIG["host_os"].match?(/mswin|mingw|cygwin/)
+      require "tempfile" unless defined?(Tempfile)
+      buf = Tempfile.new(".#{basename(file_name)}", temp_dir)
+      begin
+        buf.binmode
+        return_val = yield buf
+        buf.close
+        File.binwrite(file_name.to_s, File.binread(buf.path))
+        return return_val
+      ensure
+        buf.close unless buf.closed?
+        begin
+          buf.unlink
+        rescue StandardError
+          nil
+        end
+      end
+    end
+
     require "tempfile" unless defined?(Tempfile)
 
     Tempfile.open(".#{basename(file_name)}", temp_dir) do |temp_file|
