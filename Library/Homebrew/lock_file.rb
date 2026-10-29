@@ -76,10 +76,23 @@ class LockFile
     Utils::Interrupts.ignore do
       next if @lockfile.nil?
 
-      @path.unlink if unlink && File.identical?(@path, @lockfile)
-      @lockfile.flock(File::LOCK_UN)
-      @lockfile.close
-      @lockfile = nil
+      if unlink && RbConfig::CONFIG["host_os"].match?(/mswin|mingw|cygwin/)
+        # On Windows, File.open does not pass FILE_SHARE_DELETE, so
+        # Pathname#unlink on a file still held open by this process raises
+        # EACCES. Evaluate the identity check while the handle is open, then
+        # close before unlinking. POSIX keeps the upstream order, where the
+        # unlink is legal with the handle still open.
+        do_unlink = File.identical?(@path, @lockfile)
+        @lockfile.flock(File::LOCK_UN)
+        @lockfile.close
+        @path.unlink if do_unlink
+        @lockfile = nil
+      else
+        @path.unlink if unlink && File.identical?(@path, @lockfile)
+        @lockfile.flock(File::LOCK_UN)
+        @lockfile.close
+        @lockfile = nil
+      end
     end
   end
 
