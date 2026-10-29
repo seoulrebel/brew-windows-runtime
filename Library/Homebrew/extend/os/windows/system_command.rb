@@ -35,6 +35,22 @@ module OS
 
         UNSUPPORTED_SPAWN_OPTIONS.each { |key| options.delete(key) }
 
+        # Resolve bare "git"/"curl"/"ruby" to the vendored executables.
+        # Process.spawn on Windows does not search PATH the way the POSIX
+        # fork+exec path does, and several call sites (e.g. Tap#git_command!
+        # -> SystemCommand.run!("git", ...)) pass a bare command name.
+        case executable.to_s
+        when "git"
+          candidate = ENV["HOMEBREW_GIT_PATH"].to_s
+          executable = candidate if !candidate.empty? && File.file?(candidate)
+        when "curl"
+          candidate = ENV["HOMEBREW_CURL_PATH"].to_s
+          executable = candidate if !candidate.empty? && File.file?(candidate)
+        when "ruby"
+          candidate = ENV["HOMEBREW_RUBY_PATH"].to_s
+          executable = candidate if !candidate.empty? && File.file?(candidate)
+        end
+
         # Bash shebang shims (e.g. Library/Homebrew/shims/shared/git)
         # can't be exec'd directly by Windows CreateProcess. Detect the
         # `#!/.../bash` header and route through the vendored bash.exe.
