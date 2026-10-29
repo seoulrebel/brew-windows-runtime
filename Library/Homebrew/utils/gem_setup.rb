@@ -102,10 +102,10 @@ module Utils
       return unless setup_path
 
       # Add necessary Ruby and Gem binary directories to `PATH`.
-      paths = ENV.fetch("PATH").split(":")
+      paths = ENV.fetch("PATH").split(File::PATH_SEPARATOR)
       paths.unshift(ruby_bindir) unless paths.include?(ruby_bindir)
       paths.unshift(Gem.bindir) unless paths.include?(Gem.bindir)
-      ENV["PATH"] = paths.compact.join(":")
+      ENV["PATH"] = paths.compact.join(File::PATH_SEPARATOR)
 
       # Set envs so the above binaries can be invoked.
       # We don't do this unless requested as some formulae may invoke system Ruby instead of ours.
@@ -142,7 +142,7 @@ module Utils
     end
 
     def self.find_in_path(executable)
-      ENV.fetch("PATH").split(":").find do |path|
+      ENV.fetch("PATH").split(File::PATH_SEPARATOR).find do |path|
         File.executable?(File.join(path, executable))
       end
     end
