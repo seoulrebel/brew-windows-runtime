@@ -1795,3 +1795,5 @@ module Homebrew
 end
 
 require "extend/os/diagnostic"
+
+require_relative "extend/os/diagnostic_overrides"
